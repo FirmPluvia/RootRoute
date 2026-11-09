@@ -1,0 +1,140 @@
+--- a/constant/adapters.go
++++ b/constant/adapters.go
+@@ -68,6 +68,7 @@
+ var ErrNotSupport = errors.New("no support")
+ 
+ type Connection interface {
++	OutboundType() AdapterType
+ 	Chains() Chain
+ 	ProviderChains() Chain
+ 	AppendToChains(adapter ProxyAdapter)
+--- a/adapter/outbound/base.go
++++ b/adapter/outbound/base.go
+@@ -224,9 +224,10 @@
+ 
+ type conn struct {
+ 	N.ExtendedConn
+-	chain       C.Chain
+-	pdChain     C.Chain
+-	adapterAddr string
++	chain        C.Chain
++	pdChain      C.Chain
++	adapterAddr  string
++	outboundType C.AdapterType
+ }
+ 
+ func (c *conn) RemoteDestination() string {
+@@ -243,6 +244,8 @@
+ }
+ 
+ // Chains implements C.Connection
++func (c *conn) OutboundType() C.AdapterType { return c.outboundType }
++
+ func (c *conn) Chains() C.Chain {
+ 	return c.chain
+ }
+@@ -278,19 +281,20 @@
+ 	if _, ok := c.(syscall.Conn); !ok { // exclusion system conn like *net.TCPConn
+ 		c = N.NewDeadlineConn(c) // most conn from outbound can't handle readDeadline correctly
+ 	}
+-	cc := &conn{N.NewExtendedConn(c), nil, nil, a.Addr()}
++	cc := &conn{N.NewExtendedConn(c), nil, nil, a.Addr(), a.Type()}
+ 	cc.AppendToChains(a)
+ 	return cc
+ }
+ 
+ type packetConn struct {
+ 	N.EnhancePacketConn
+-	chain       C.Chain
+-	pdChain     C.Chain
+-	adapterName string
+-	connID      string
+-	adapterAddr string
+-	resolveUDP  func(ctx context.Context, metadata *C.Metadata) error
++	chain        C.Chain
++	pdChain      C.Chain
++	adapterName  string
++	connID       string
++	adapterAddr  string
++	outboundType C.AdapterType
++	resolveUDP   func(ctx context.Context, metadata *C.Metadata) error
+ }
+ 
+ func (c *packetConn) ResolveUDP(ctx context.Context, metadata *C.Metadata) error {
+@@ -303,6 +307,8 @@
+ }
+ 
+ // Chains implements C.Connection
++func (c *packetConn) OutboundType() C.AdapterType { return c.outboundType }
++
+ func (c *packetConn) Chains() C.Chain {
+ 	return c.chain
+ }
+@@ -344,7 +350,7 @@
+ 	if _, ok := pc.(syscall.Conn); !ok { // exclusion system conn like *net.UDPConn
+ 		epc = N.NewDeadlineEnhancePacketConn(epc) // most conn from outbound can't handle readDeadline correctly
+ 	}
+-	cpc := &packetConn{epc, nil, nil, a.Name(), utils.NewUUIDV4().String(), a.Addr(), a.ResolveUDP}
++	cpc := &packetConn{epc, nil, nil, a.Name(), utils.NewUUIDV4().String(), a.Addr(), a.Type(), a.ResolveUDP}
+ 	cpc.AppendToChains(a)
+ 	return cpc
+ }
+--- a/tunnel/statistic/manager.go
++++ b/tunnel/statistic/manager.go
+@@ -7,6 +7,7 @@
+ 	"github.com/metacubex/mihomo/common/atomic"
+ 	"github.com/metacubex/mihomo/common/xsync"
+ 	"github.com/metacubex/mihomo/component/memory"
++	C "github.com/metacubex/mihomo/constant"
+ )
+ 
+ var DefaultManager *Manager
+@@ -20,6 +21,7 @@
+ 		uploadTotal:   atomic.NewInt64(0),
+ 		downloadTotal: atomic.NewInt64(0),
+ 		pid:           int32(os.Getpid()),
++		trafficMode:   os.Getenv("ROOTROUTE_TRAFFIC"),
+ 	}
+ 
+ 	go DefaultManager.handle()
+@@ -35,6 +37,22 @@
+ 	downloadTotal atomic.Int64
+ 	pid           int32
+ 	memory        uint64
++	trafficMode   string
++}
++
++// shouldCount classifies the actual leaf adapter recorded when the connection
++// was opened, so later changes to a selector do not change its accounting.
++func (m *Manager) shouldCount(conn C.Connection, requested bool) bool {
++	if !requested || m.trafficMode == "off" {
++		return false
++	}
++	if m.trafficMode == "proxy" {
++		switch conn.OutboundType() {
++		case C.Direct, C.Compatible, C.Reject, C.RejectDrop, C.Pass, C.PassRule, C.Dns:
++			return false
++		}
++	}
++	return true
+ }
+ 
+ func (m *Manager) Join(c Tracker) {
+--- a/tunnel/statistic/tracker.go
++++ b/tunnel/statistic/tracker.go
+@@ -118,6 +118,7 @@
+ 
+ func NewTCPTracker(conn C.Conn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *tcpTracker {
+ 	metadata.RemoteDst = conn.RemoteDestination()
++	pushToManager = manager.shouldCount(conn, pushToManager)
+ 
+ 	t := &tcpTracker{
+ 		Conn:    conn,
+@@ -210,6 +211,7 @@
+ 
+ func NewUDPTracker(conn C.PacketConn, manager *Manager, metadata *C.Metadata, rule C.Rule, uploadTotal int64, downloadTotal int64, pushToManager bool) *udpTracker {
+ 	metadata.RemoteDst = conn.RemoteDestination()
++	pushToManager = manager.shouldCount(conn, pushToManager)
+ 
+ 	ut := &udpTracker{
+ 		PacketConn: conn,
