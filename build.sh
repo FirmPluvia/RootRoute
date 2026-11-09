@@ -26,15 +26,30 @@ fi
 "$bt/aapt2" link -I "$android" --manifest AndroidManifest.xml -A assets "$build/compiled-res.zip" --version-code 18 --version-name 0.3 -o "$build/resources.apk"
 (cd "$build/dex"; zip -q -j "$build/resources.apk" classes*.dex)
 "$bt/zipalign" -f 4 "$build/resources.apk" "$build/aligned.apk"
-if [ -z "${ROOTROUTE_KEYSTORE:-}" ]; then
+# 签名：优先用 4 个 Secret 的命名规则（KEYSTORE_BASE64、KEYSTORE_PASSWORD、KEY_ALIAS、
+# KEY_PASSWORD，与其他项目一致）；其次兼容旧的 ROOTROUTE_KEYSTORE / ROOTROUTE_STOREPASS；
+# 都没给则现场生成一次性测试密钥。
+sign_args=()
+if [ -n "${KEYSTORE_BASE64:-}" ]; then
+    : "${KEYSTORE_PASSWORD:?Set KEYSTORE_PASSWORD for the supplied keystore}"
+    : "${KEY_ALIAS:?Set KEY_ALIAS for the supplied keystore}"
+    keystore="$build/keystore"
+    printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+    KEY_PASSWORD="${KEY_PASSWORD:-$KEYSTORE_PASSWORD}"
+    export KEYSTORE_PASSWORD KEY_PASSWORD
+    sign_args=(--ks "$keystore" --ks-key-alias "$KEY_ALIAS" --ks-pass env:KEYSTORE_PASSWORD --key-pass env:KEY_PASSWORD)
+elif [ -n "${ROOTROUTE_KEYSTORE:-}" ]; then
+    : "${ROOTROUTE_STOREPASS:?Set ROOTROUTE_STOREPASS for the supplied keystore}"
+    export ROOTROUTE_STOREPASS
+    sign_args=(--ks "$ROOTROUTE_KEYSTORE" --ks-key-alias rootroute --ks-pass env:ROOTROUTE_STOREPASS)
+else
     ROOTROUTE_KEYSTORE="$build/test.p12"
     ROOTROUTE_STOREPASS=android
     keytool -genkeypair -keystore "$ROOTROUTE_KEYSTORE" -storepass android -keypass android \
         -alias rootroute -dname "CN=RootRoute Test" -keyalg RSA -keysize 2048 -validity 3650
-else
-    : "${ROOTROUTE_STOREPASS:?Set ROOTROUTE_STOREPASS for the supplied keystore}"
+    export ROOTROUTE_STOREPASS
+    sign_args=(--ks "$ROOTROUTE_KEYSTORE" --ks-key-alias rootroute --ks-pass env:ROOTROUTE_STOREPASS)
 fi
-export ROOTROUTE_STOREPASS
-"$bt/apksigner" sign --ks "$ROOTROUTE_KEYSTORE" --ks-key-alias rootroute --ks-pass env:ROOTROUTE_STOREPASS --out "$out" "$build/aligned.apk"
+"$bt/apksigner" sign "${sign_args[@]}" --out "$out" "$build/aligned.apk"
 "$bt/apksigner" verify --verbose "$out"
 rm -f "$out.idsig"
