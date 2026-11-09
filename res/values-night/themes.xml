@@ -1,0 +1,7 @@
+<resources>
+    <style name="RootRouteTheme" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:windowBackground">#111216</item>
+        <item name="android:statusBarColor">#111216</item>
+        <item name="android:navigationBarColor">#111216</item>
+    </style>
+</resources>
