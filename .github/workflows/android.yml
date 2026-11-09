@@ -1,0 +1,87 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: ['**']
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Install Android SDK components
+        run: |
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" --licenses < <(yes) >/dev/null
+          "$sdkmanager" --sdk_root="$ANDROID_HOME" "platforms;android-35" "build-tools;35.0.0"
+      - name: Validate shell scripts
+        run: |
+          bash -n build.sh
+          bash -n build-core.sh
+          sh -n assets/route.sh
+      - name: Build test APK
+        if: github.event_name != 'push' || github.ref_type != 'tag'
+        run: |
+          mkdir -p dist
+          ANDROID_SDK_ROOT="$ANDROID_HOME" ./build.sh "$PWD/dist/RootRoute-test-arm64.apk"
+      - name: Build signed release APK
+        if: github.event_name == 'push' && github.ref_type == 'tag'
+        env:
+          ROOTROUTE_KEYSTORE_BASE64: ${{ secrets.ROOTROUTE_KEYSTORE_BASE64 }}
+          ROOTROUTE_STOREPASS: ${{ secrets.ROOTROUTE_STOREPASS }}
+        run: |
+          if [[ -z "$ROOTROUTE_KEYSTORE_BASE64" || -z "$ROOTROUTE_STOREPASS" ]]; then
+            echo "::error::Release builds require ROOTROUTE_KEYSTORE_BASE64 and ROOTROUTE_STOREPASS."
+            exit 1
+          fi
+          umask 077
+          export ROOTROUTE_KEYSTORE
+          ROOTROUTE_KEYSTORE="$(mktemp "$RUNNER_TEMP/rootroute.XXXXXXXX.p12")"
+          trap 'rm -f "$ROOTROUTE_KEYSTORE"' EXIT
+          printf '%s' "$ROOTROUTE_KEYSTORE_BASE64" | base64 --decode > "$ROOTROUTE_KEYSTORE"
+          unset ROOTROUTE_KEYSTORE_BASE64
+          mkdir -p dist
+          apk="$PWD/dist/RootRoute-arm64.apk"
+          ANDROID_SDK_ROOT="$ANDROID_HOME" ./build.sh "$apk"
+          version="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" |
+            sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p")"
+          if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
+            echo "::error::Release tag must match the APK version (v$version)."
+            exit 1
+          fi
+      - uses: actions/upload-artifact@v6
+        with:
+          name: rootroute-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref_type == 'tag'
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v7
+        with:
+          name: rootroute-android
+          path: dist
+      - name: Publish signed APK
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/RootRoute-arm64.apk \
+            --verify-tag --generate-notes --title "RootRoute ${GITHUB_REF_NAME#v}"
