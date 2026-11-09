@@ -1,0 +1,21 @@
+# Local builds and editor files
+/dist/
+/build/
+/out/
+/.gradle/
+/.idea/
+*.iml
+*.apk
+*.idsig
+local.properties
+.DS_Store
+
+# Signing credentials and local overrides
+/.signing/
+.env
+.env.*
+*.jks
+*.keystore
+*.p12
+*.pfx
+*.pass
