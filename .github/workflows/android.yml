@@ -39,19 +39,15 @@ jobs:
       - name: Build signed release APK
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
-          ROOTROUTE_KEYSTORE_BASE64: ${{ secrets.ROOTROUTE_KEYSTORE_BASE64 }}
-          ROOTROUTE_STOREPASS: ${{ secrets.ROOTROUTE_STOREPASS }}
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
-          if [[ -z "$ROOTROUTE_KEYSTORE_BASE64" || -z "$ROOTROUTE_STOREPASS" ]]; then
-            echo "::error::Release builds require ROOTROUTE_KEYSTORE_BASE64 and ROOTROUTE_STOREPASS."
+          if [[ -z "$KEYSTORE_BASE64" || -z "$KEYSTORE_PASSWORD" || -z "$KEY_ALIAS" || -z "$KEY_PASSWORD" ]]; then
+            echo "::error::Release builds require KEYSTORE_BASE64, KEYSTORE_PASSWORD, KEY_ALIAS and KEY_PASSWORD."
             exit 1
           fi
-          umask 077
-          export ROOTROUTE_KEYSTORE
-          ROOTROUTE_KEYSTORE="$(mktemp "$RUNNER_TEMP/rootroute.XXXXXXXX.p12")"
-          trap 'rm -f "$ROOTROUTE_KEYSTORE"' EXIT
-          printf '%s' "$ROOTROUTE_KEYSTORE_BASE64" | base64 --decode > "$ROOTROUTE_KEYSTORE"
-          unset ROOTROUTE_KEYSTORE_BASE64
           mkdir -p dist
           apk="$PWD/dist/RootRoute-arm64.apk"
           ANDROID_SDK_ROOT="$ANDROID_HOME" ./build.sh "$apk"
