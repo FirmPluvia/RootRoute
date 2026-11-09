@@ -28,27 +28,30 @@ RootRoute 是一个基于 Mihomo 的 **Android Root 透明代理**。它按应�
 ANDROID_SDK_ROOT=/path/to/android-sdk ./build.sh
 ```
 
-默认输出 `RootRoute-arm64.apk`，使用临时测试签名。要构建能覆盖安装的正式版，请沿用同一份 PKCS#12 签名文件，密钥别名为 `rootroute`。
+默认输出 `RootRoute-arm64.apk`，使用临时测试签名。要构建能覆盖安装的正式版，请提供签名文件（JKS 或 PKCS#12），用下面 4 个环境变量传入，与其他项目共用同一套命名：
 
 ```sh
 ANDROID_SDK_ROOT=/path/to/android-sdk \
-ROOTROUTE_KEYSTORE=/absolute/path/rootroute.p12 \
+KEYSTORE_BASE64="$(base64 -w0 /absolute/path/keystore)" \
+KEYSTORE_PASSWORD=<库口令> KEY_ALIAS=<密钥别名> KEY_PASSWORD=<密钥口令> \
 ./build.sh
 ```
 
-运行正式构建前，通过环境变量 `ROOTROUTE_STOREPASS` 提供签名密码。签名文件和密码应保存在仓库外。
+`KEY_PASSWORD` 与库口令相同时可不填，默认取 `KEYSTORE_PASSWORD` 的值。签名文件和密码应保存在仓库外。旧的 `ROOTROUTE_KEYSTORE` + `ROOTROUTE_STOREPASS` 方式仍可用（密钥别名固定为 `rootroute`）。
 
 仓库内附带可用于构建 APK 的 Mihomo ARM64 压缩包。需要重建核心时，使用 Go 1.26、Android NDK r29、`patch` 和 `unzip`，设置 `ANDROID_NDK_ROOT` 后运行 `./build-core.sh`。若产物的 SHA-256 改变，核对后同步更新 `build.sh` 中的校验值。
 
 ## GitHub Actions
 
 - 分支推送、Pull Request 和手动运行会构建测试 APK，可在对应运行的 **Artifacts** 下载。
-- 推送与应用版本一致的标签（如 `v0.3`）会构建正式签名 APK，并创建 GitHub Release。先在仓库的 **Settings → Secrets and variables → Actions** 添加两个仓库级 Secret。
+- 推送与应用版本一致的标签（如 `v0.3`）会构建正式签名 APK，并创建 GitHub Release。先在仓库的 **Settings → Secrets and variables → Actions** 添加四个仓库级 Secret（与其他项目同一套命名）。
 
 | Secret | 内容 |
 |---|---|
-| `ROOTROUTE_KEYSTORE_BASE64` | PKCS#12 签名文件的 Base64 内容，密钥别名为 `rootroute` |
-| `ROOTROUTE_STOREPASS` | 签名文件密码 |
+| `KEYSTORE_BASE64` | 签名文件（JKS 或 PKCS#12）的 Base64 内容 |
+| `KEYSTORE_PASSWORD` | 签名文件密码（库口令） |
+| `KEY_ALIAS` | 签名密钥别名 |
+| `KEY_PASSWORD` | 签名密钥口令 |
 
 ## 许可证
 
