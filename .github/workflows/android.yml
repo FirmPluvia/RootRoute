@@ -35,7 +35,7 @@ jobs:
         if: github.event_name != 'push' || github.ref_type != 'tag'
         run: |
           mkdir -p dist
-          ANDROID_SDK_ROOT="$ANDROID_HOME" ./build.sh "$PWD/dist/RootRoute-test-arm64.apk"
+          ANDROID_SDK_ROOT="$ANDROID_HOME" bash build.sh "$PWD/dist/RootRoute-test-arm64.apk"
       - name: Build signed release APK
         if: github.event_name == 'push' && github.ref_type == 'tag'
         env:
@@ -50,7 +50,7 @@ jobs:
           fi
           mkdir -p dist
           apk="$PWD/dist/RootRoute-arm64.apk"
-          ANDROID_SDK_ROOT="$ANDROID_HOME" ./build.sh "$apk"
+          ANDROID_SDK_ROOT="$ANDROID_HOME" bash build.sh "$apk"
           version="$("$ANDROID_HOME/build-tools/35.0.0/aapt" dump badging "$apk" |
             sed -n "s/^package: .*versionName='\([^']*\)'.*/\1/p")"
           if [[ "v$version" != "$GITHUB_REF_NAME" ]]; then
